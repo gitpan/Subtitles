@@ -1,0 +1,30 @@
+Subtitles 
+=========
+
+Movie files can be viewed with subtitles, which are currently
+very popular as text files. Subtitles provides means for
+simple loading, re-timing, and storing these subtitle files.
+A command-line tool subs.pl for the same purpose and using
+Subtitles interface is included in the distribution.
+
+The module supports .srt, .sub, and .smi subtitle formats.
+
+INSTALLATION
+============
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+
+COPYRIGHT AND LICENCE
+=====================
+
+Copyright (C) 2004 Dmitry Karasik
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. 
+
