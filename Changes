@@ -4,3 +4,7 @@ Revision history for Perl extension Subtitles.
 	- original version; created by h2xs 1.22 with options
 		-X Subtitles
 
+0.02  
+	- More correct parsing of .smi subs
+	- fix time_parse
+	- fix corner cases of split

@@ -6,7 +6,7 @@ use vars qw(@ISA @EXPORT @EXPORT_OK @codecs $VERSION);
 @ISA = qw(Exporter);
 @EXPORT = qw(codecs time2str);
 @EXPORT_OK = qw(codecs time2hms time2shms hms2time time2str);
-$VERSION = '0.01';
+$VERSION = '0.02';
 
 
 push @codecs, map { "Subtitles::Codec::$_" } qw( srt sub sub2 smi);
@@ -86,10 +86,10 @@ sub load
    unless ( defined $codec) {
       for ( @content) {
          my $line = $_;
-	 for ( @codecs) {
+         for ( @codecs) {
             next unless $_-> match( $line);
-	    $codec = $_;
-	 }
+            $codec = $_;
+         }
       }
    }
    unless ( defined $codec) {
@@ -162,6 +162,7 @@ sub parse_time
    $sign = -1 if $time =~ s/^-//;
    if ( $time =~ m/^(?:(\d{1,2}):)?(?:(\d{1,2}):)?(\d{1,2})(?:[\,\.\:](\d{1,3}))?$/) {
       my ( $h, $m, $s, $ms) = ( $1, $2, $3, $4);
+      ( $h, $m) = ( $m, $h) if defined $h && ! defined $m;
       $h  = 0 unless defined $h;
       $m  = 0 unless defined $m;
       $ms = '0' unless defined $ms;
@@ -199,17 +200,17 @@ sub dup
    my ( $self, $clear) = @_;
    if ( $clear) {
       return bless { 
-	%$self,
-	text => [],
-	from => [],
-	to   => [],
+        %$self,
+        text => [],
+        from => [],
+        to   => [],
       }, $self-> {class};
    } else {
       return bless { 
-	%$self,
-	text => [ @{$self->{text}}],
-	from => [ @{$self->{from}}],
-	to   => [ @{$self->{to}}],
+        %$self,
+        text => [ @{$self->{text}}],
+        from => [ @{$self->{from}}],
+        to   => [ @{$self->{to}}],
       }, $self-> {class};
    }
 }
@@ -243,8 +244,9 @@ sub split
    my $t = $self->{to};
    my ( $end, $begin);
 
+   $end = $n - 1;
    for ( $i = 0; $i < $n; $i++) {
-      next if $$t[$i] < $where;
+      next if $$t[$i] <= $where;
       $begin = $i;
       $end = $i - 1;
       last;
@@ -336,29 +338,29 @@ sub read
       $line++;
       if ( $stage == 0) {
          next unless length;
-	 die "Invalid line numbering at line $line\n" unless m/^\d+$/;
-	 $num++;
-	 $stage++;
+         die "Invalid line numbering at line $line\n" unless m/^\d+$/;
+         $num++;
+         $stage++;
       } elsif ( $stage == 1) {
          die "Invalid timing at line $line\n" unless
             m/^(\d\d):(\d\d):(\d\d)\,(\d\d\d)\s*-->\s*(\d\d):(\d\d):(\d\d)\,(\d\d\d)/;
-	 push @{$sub->{from}}, Subtitles::hms2time( $1, $2, $3, $4);
-	 push @{$sub->{to}},   Subtitles::hms2time( $5, $6, $7, $8); 
-	 $stage++;
+         push @{$sub->{from}}, Subtitles::hms2time( $1, $2, $3, $4);
+         push @{$sub->{to}},   Subtitles::hms2time( $5, $6, $7, $8); 
+         $stage++;
       } elsif ( $stage == 2) {
          if ( length) {
-	    push @{$sub->{text}}, $_;
-	    $stage++;
-	 } else {
-	    push @{$sub->{text}}, '';
-	    $stage = 0;
-	 }
+            push @{$sub->{text}}, $_;
+            $stage++;
+         } else {
+            push @{$sub->{text}}, '';
+            $stage = 0;
+         }
       } else {
          if ( length) {
-	    $sub->{text}->[-1] .= "\n$_";
-	 } else {
-	    $stage = 0;
-	 }
+            $sub->{text}->[-1] .= "\n$_";
+         } else {
+            $stage = 0;
+         }
       }
    }
    1;
@@ -378,11 +380,11 @@ sub write
       push @ret, 
          $i + 1,
          sprintf ( "%02d:%02d:%02d,%03d --> %02d:%02d:%02d,%03d",
-	    Subtitles::time2hms($from->[$i]),
-	    Subtitles::time2hms($to->[$i]),
-	 ),
-	 split ("\n", $text->[$i]),
-	 ''
+            Subtitles::time2hms($from->[$i]),
+            Subtitles::time2hms($to->[$i]),
+         ),
+         split ("\n", $text->[$i]),
+         ''
       ;
    }
    \@ret;
@@ -394,7 +396,7 @@ use vars qw(@ISA);
 
 sub match
 {
-   $_[1] =~ m/^{\d+}{\d+}/; 
+   $_[1] =~ m/^{\d+}{\d*}/; 
 }
 
 sub read
@@ -411,9 +413,9 @@ sub read
 
    for ( @$content) {
       $line++;
-      m/^{(\d+)}{(\d+)}(.*)$/ or die "Invalid input at line $line\n";
+      m/^{(\d+)}{(\d*)}(.*)$/ or die "Invalid input at line $line\n";
       push @$from, $1/$fps;
-      push @$to,   $2/$fps;
+      push @$to,   length($2) ? ($2/$fps) : ($1+1)/$fps;
       my $t = $3;
       $t=~ s/\|\s*/\n/g;
       push @$text, $t;
@@ -438,10 +440,10 @@ sub write
       $t =~ s/\n/\|/g;
       push @ret, 
          sprintf ( "{%d}{%d}%s",
-	    int( $from->[$i] * $fps + .5),
-	    int( $to->[$i]   * $fps + .5),
-	    $t
-	 );
+            int( $from->[$i] * $fps + .5),
+            int( $to->[$i]   * $fps + .5),
+            $t
+         );
    }
    \@ret;
 }
@@ -487,24 +489,24 @@ sub read
       $line++;
       if ( $read_header) {
          if ( m/^(\d\d):(\d\d):(\d\d)\.(\d\d)\,(\d\d):(\d\d):(\d\d)\.(\d\d)/) {
-	    $read_header = 0;
-	    goto BODY;
-	 }
+            $read_header = 0;
+            goto BODY;
+         }
          push @header, $_;
       } else {
       BODY:
          if ( $state == 0) {
-	    next unless length;
+            next unless length;
             die "Invalid timing at line $line\n" unless
                m/^(\d\d):(\d\d):(\d\d)\.(\d\d)\,(\d\d):(\d\d):(\d\d)\.(\d\d)/;
-	    push @$from, Subtitles::hms2time( $1, $2, $3, $4 * 10);
-	    push @$to,   Subtitles::hms2time( $5, $6, $7, $8 * 10); 
-	    $state = 1;
-	 } else {
-	    s/\[br\]\s*/\n/g;
-	    push @$text, $_;
-	    $state = 0;
-	 }
+            push @$from, Subtitles::hms2time( $1, $2, $3, $4 * 10);
+            push @$to,   Subtitles::hms2time( $5, $6, $7, $8 * 10); 
+            $state = 1;
+         } else {
+            s/\[br\]\s*/\n/g;
+            push @$text, $_;
+            $state = 0;
+         }
       }
    }
 
@@ -550,11 +552,11 @@ HEADER
       $t =~ s/\n/[br]/g;
       push @ret, 
          sprintf ( "%02d:%02d:%02d.%02d,%02d:%02d:%02d.%02d",
-	   $fh,$fm,$fs,$fms,
+           $fh,$fm,$fs,$fms,
            $th,$tm,$ts,$tms
-	 ),
-	 $t,
-	 ''
+         ),
+         $t,
+         ''
       ;
    }
    \@ret;
@@ -566,7 +568,7 @@ use vars qw(@ISA);
 
 sub match
 {
-   $_[1] =~ m/^<SAMI>/;
+   $_[1] =~ m/^<SAMI>/i;
 }
 
 sub read
@@ -599,55 +601,93 @@ sub read
 
    my $read_header = 1;
    my $read_footer = 0;
-   my $state = 0;
    my $fps = $sub->{rate} ? $sub->{rate} : 25;
 
+   my $body = '';
+
+   # extract body to inspect closer
    for ( @$content) {
-      $line++;
       if ( $read_header) {
          if ( m/<BODY>/i) {
-	    $read_header = 0;
-	 }
+            $read_header = 0;
+         }
          push @header, $_;
       } elsif ( $read_footer) {
          push @footer, $_;
       } else {
-         if ( $state == 0 || $state == 2) {
-	    if ( m/<\/BODY>/) {
-               push @footer, $_;
-	       $read_footer = 1; 
-	       next;
-	    }
-	    die "Invalid timestamp at line $line: $_\n" unless m/^(\s*)<\s*SYNC\s*START=(\d+)/i;
-	    $state ?
-	      push (@$to,   $2/$fps) :
-	      push (@$from, $2/$fps);
-	    $state++;
-	    $sub->{smi}->{s1indent} = length($1) 
-	       unless exists $sub->{smi}->{s1indent};
-	 } elsif ( $state == 1 || $state == 3) {
-	    die "Invalid text at line $line: $_\n" unless m/^(\s*)<\s*P\s*CLASS=(\S+)>(.*)$/i;
-	    my ( $s1, $s2, $txt) = ( $1, $2, $3);
-	    $txt =~ s/<\s*br\s*>\s*/\n/gi;
-	    if ( $txt =~ /^\&nbsp;/) {
-               pop @$from if $state == 1; # extra &nbsp;
-	       $state = 0;
-	    } else {
-	       $sub->{smi}->{s2indent} = length($s1) 
-		  unless exists $sub->{smi}->{s2indent};
-	       $sub->{smi}->{class} = $s2 
-		  unless exists $sub->{smi}->{class};
-	       push @$from, $$to[-1] + 1/$fps if $state == 3;
-	       $state = 2;
-	       push @$text, $txt;
-	    }
-	 }
+         if ( m/<\/BODY>/) {
+            push @footer, $_;
+            $read_footer = 1; 
+            next;
+         }
+         $body .= $_;
       }
    }
 
+   # parse body
+   while ( $body =~ m/\G(?:(?:(\s*)<\s*([^\>]*)\s*>)|([^<>]*))/gcs) {
+      if ( defined $2 && length $2) {
+# print "1:$2\n";
+	 my $t = $1;
+         $_ = $2;
+         if ( m/^sync\s+start\s*=\s*(\d+)/i) {
+	    $sub->{smi}->{s1gap} = length $t
+	       unless defined $sub->{smi}->{s1gap};
+            if ( @$from == @$to) {
+               goto ERROR if @$from != @$text;
+               push @$from, $1/$fps;
+            } elsif ( @$from == @$to + 1) {
+               if ( @$from == @$text) {
+                  if ( $$text[-1] eq '') {
+                     pop @$from;
+                     pop @$text;
+                  } else {
+                     push @$to, $1/$fps;
+                     push @$from, $1/$fps;
+                  }
+               } else {
+                  goto ERROR;
+	       }
+            } else {
+               goto ERROR;
+            }
+         } elsif ( m/^p\s+class\s*\=\s*(\S+)/i) {
+	    $sub->{smi}->{s2gap} = length $t
+	       unless defined $sub->{smi}->{s2gap};
+            $sub-> {smi}-> {class} = $1
+               unless defined $sub->{smi}->{class};
+            push @$text, '';
+         } elsif ( m/\s*br\s*/i) {
+            $$text[-1] .= "\n" if @$text;
+         } elsif ( @$text) {
+	    $_ = "<$_>";
+            goto TEXT;
+         }
+      } elsif ( @$text && length $3) { # no text without reference
+# print "2:$3\n";
+         $_ = $3;
+      TEXT:
+         if ( m/^\s*&nbsp;\s*$/i) {
+            if ( $$text[-1] eq '') {
+               pop @$text;
+               pop @$from;
+	    }
+         } else {
+            s/[\n\r\s]+/ /g;
+            $$text[-1] .= $_ unless $_ eq ' ' ;
+         }
+      }
+# print "(from=",scalar(@$from),",to=",scalar(@$to),",text=",scalar(@$text),")\n";
+   }
+
+   s/\s+$// for @$text;
+
    $sub->{smi}->{header} = \@header;
    $sub->{smi}->{footer} = \@footer;
-   1;
+   return 1;
+
+ERROR:  
+   die "Inconsistency near '$_' (from=",scalar(@$from),",to=",scalar(@$to),",text=",scalar(@$text),")\n";
 }
 
 sub write
@@ -689,18 +729,20 @@ sub write
 HEADER
    }
 
-   my $s1 = ' ' x ( $sub->{smi}->{s1indent} || 0);
-   my $s2 = ' ' x ( $sub->{smi}->{s2indent} || 0);
+   my $s1 = ' ' x ( $sub->{smi}->{s1gap} || 0);
+   my $s2 = ' ' x ( $sub->{smi}->{s2gap} || 0);
    for ( $i = 0; $i < $n; $i++) {
       my $f = int($$from[$i] * $fps + .5);
       my $t = int($$to[$i] * $fps + .5);
       my $x = $$text[$i];
       $x =~ s/\n/<br>/g;
       push @ret, 
-         "$s1<SYNC START=$f>",
-	 "$s2<P CLASS=$smi_class>$x",
-         "$s1<SYNC START=$t>",
-	 "$s2<P CLASS=$smi_class>&nbsp;"
+         "$s1<SYNC Start=$f>",
+         "$s2<P Class=$smi_class>$x";
+      push @ret,
+         "$s1<SYNC Start=$t>",
+         "$s2<P Class=$smi_class>&nbsp;"
+	 if $i == $n - 1 || int($$from[$i+1] * $fps + .5) != $t;
       ;
    }
    if ( $sub->{smi}->{footer}) {
@@ -745,13 +787,12 @@ Time values are floats, in seconds with millisecond precision.
 =head1 SYNOPSIS
 
    use Subtitles;
+   
+   my $sub = Subtitles->new();
 
    open F, 'Ichi The Killer.sub' or die "Cannot read:$!";
-   
-   my $sub = load(\*F);
+   die "Cannot load:$@\n" unless $sub-> load(\*F);
    close F;
-
-   die "error:$@\n" unless $sub;
 
    # back two minutes
    $sub-> shift( $sub-> parse_time('-02:00')); 
@@ -766,11 +807,11 @@ Time values are floats, in seconds with millisecond precision.
    my ( $part1, $part2) = $sub-> split( $self-> length / 2);
 
    # join back with 5-second gap 
-   $sub = $part1-> join( $part2, 5);
+   $part1-> join( $part2, 5);
 
    # save
    open F, "> out.sub" or die "Cannot write:$!\n";
-   $sub-> save( \*F);
+   $part1-> save( \*F);
    close F;
 
    # report
