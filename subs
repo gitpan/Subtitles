@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# $Id$
+# $Id: subs,v 1.4 2004/07/02 18:58:34 dk Exp $
 use strict;
 use Subtitles;
 
@@ -38,10 +38,11 @@ options:
    -o file   - file to save processed subtitles (default out.sub)
    -p t1 t2  - set a control point, where t1 is time of a phrase
                spoken in the film and t2 is time when the same 
-	       phrase as appears in the subtitle. One point is enough
-	       for deducing the -b coefficient, two points are enough
-	       for deducing both -a and -b coefficients. Times can
-	       be relative, f.ex. -p 01:00 +3.5 -p -20 1:00:00 
+	       phrase as appears in the subtitle. Two points are 
+	       required for deducing -a and -b coefficients; if 
+	       only one point is specified, it is assumed that
+	       the other one is [0,0]. Times can be relative, f.ex. 
+	       -p 01:00 +3.5 -p -20 1:00:00 
    -r rate   - force frame-per-second rate for frame-based subs
    -s time   - split in two parts by time
    -v        - be verbose
@@ -185,39 +186,29 @@ for (@points) {
    $_ = [$p1,$p2];
 }
 
-if ( 1 == @points) {
-   my ( $p1, $p2) = @{$points[0]};
-   die "-p option conflicts with -b\n" if defined $b;
-   $b = $p1 - $p2;
-   warn "control point [", time2str($p1), ",", time2str($p2), "]\n" if $verbose;
-} elsif ( 2 == @points) {
-   my ( $p1, $p2) = @{$points[0]};
-   my ( $r1, $r2) = @{$points[1]};
-   ( $r1, $r2, $p1, $p2) = ( $p1, $p2, $r1, $r2) if $p1 > $r1;
-   die "two -p option sets conflicts with -a and -b\n" if defined($a) || defined($b);
-   my ( $u1, $u2) = ( $p2 - $p1, $r2 - $r1);
-   my ( $t1, $t2) = ( $p2, $r2);
+unshift @points, [0,0] if 1 == @points;
+
+if ( 2 == @points) {
+   my ( $t1, $u1) = @{$points[0]};
+   my ( $t2, $u2) = @{$points[1]};
+   die "-p option conflicts with -a and -b\n" if defined($a) || defined($b);
    my ( $dt, $du) = ( $t2 - $t1, $u2 - $u1);
-   die "Point sets refers to the same time\n" if $dt == 0;
+   die "Point sets refers to the same time\n" if $dt == 0 || $du == 0;
 # 
-#    dt/du = (t2-t0)/(u2-u0), t0=0
-#    u0 = u2 - t2*du/dt
 # 
-#    |u(difference between subtitles and sound); u > 0 means subtitle is late
+#    |u(subtitles)
 #    |
 # u2 |             *
 # u1 |      *     
-# u0 *                    t(absolute time)
+#    |                    t(speech)
 #    ----------------------
-#    t0=0   t1     t2     
+#           t1     t2     
 #
-   $b = -($u2 - $t2 * $du / $dt);
-   die "Time [", time2str($r2), "] leads to singularity; please select another control point time\n"
-      if $r2 + $b == 0;
-   $a = $r1/($r2 + $b);
+   $a = $dt / $du;
+   $b = $t1 - $u1 * $a;
 
-   warn "control points [", time2str($p1), ",", time2str($p2), "], [",
-       time2str($r1), ",", time2str($r2),
+   warn "control points [", time2str($t1), ",", time2str($u1), "], [",
+       time2str($t2), ",", time2str($u2),
       "]\n" if $verbose;
    $b = time2str( $b);
 }
@@ -278,7 +269,8 @@ if ( defined $split) {
 } else {
 # just save
    warn "write ".$dest->lines." line(s) in '$out'\n" if $verbose;
-   if ( $inplace) {
+   my $rename = $inplace or -f $out;
+   if ( $rename) {
       rename $out, "$out.bak" or die "Cannot rename $out to $out.bak:$!\n";
    }
    eval {
@@ -287,7 +279,7 @@ if ( defined $split) {
       close F;
    };
    if ( $@) {
-      rename "$out.bak", $out if $inplace;
+      rename "$out.bak", $out if $rename;
       die $@;
    }
 }
@@ -344,9 +336,9 @@ File to save processed subtitles (default out.sub)
 =item -p t1 t2
 
 Set a control point, where t1 is time of a phrase spoken in the film and t2 is
-time when the same phrase as appears in the subtitle. One point is enough for
-deducing the -b coefficient, two points are enough for deducing both -a and -b
-coefficients. 
+time when the same phrase as appears in the subtitle. Two points are required
+for deducing -a and -b coefficients; if only one point is specified, it is
+assumed that the other one is [0,0].
 
 Times can be relative, f.ex. -p 01:00 +3.5 -p -20 1:00:00
 

@@ -8,3 +8,8 @@ Revision history for Perl extension Subtitles.
 	- More correct parsing of .smi subs
 	- fix time_parse
 	- fix corner cases of split
+
+0.03
+	- fix smi timing
+	- s/sub/mdvd/
+	- fix time2(s)hms

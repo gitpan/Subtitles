@@ -1,4 +1,4 @@
-# $Id$
+# $Id: Subtitles.pm,v 1.4 2004/07/02 18:55:55 dk Exp $
 package Subtitles;
 use strict;
 require Exporter;
@@ -6,10 +6,10 @@ use vars qw(@ISA @EXPORT @EXPORT_OK @codecs $VERSION);
 @ISA = qw(Exporter);
 @EXPORT = qw(codecs time2str);
 @EXPORT_OK = qw(codecs time2hms time2shms hms2time time2str);
-$VERSION = '0.02';
+$VERSION = '0.05';
 
 
-push @codecs, map { "Subtitles::Codec::$_" } qw( srt sub sub2 smi);
+push @codecs, map { "Subtitles::Codec::$_" } qw( srt mdvd sub2 smi);
 
 #
 # package-oriented API
@@ -20,7 +20,8 @@ sub time2hms
    shift if $#_ == 1; # package and object
    my $time = $_[0];
    $time = 0 if $time < 0;
-   return int($time/3600),int(($time%3600)/60),int($time%60),int(($time-int($time))*1000 + .5),
+   $time += .0005;
+   return int($time/3600),int(($time%3600)/60),int($time%60),int(($time-int($time))*1000),
 }
 
 sub time2shms
@@ -34,7 +35,8 @@ sub time2shms
    } else {
       $sign = 1;
    }
-   return $sign,int($time/3600),int(($time%3600)/60),int($time%60),int(($time-int($time))*1000 + .5),
+   $time += .0005;
+   return $sign,int($time/3600),int(($time%3600)/60),int($time%60),int(($time-int($time))*1000),
 }
 
 sub hms2time
@@ -390,7 +392,7 @@ sub write
    \@ret;
 }
 
-package Subtitles::Codec::sub;
+package Subtitles::Codec::mdvd;
 use vars qw(@ISA);
 @ISA=qw(Subtitles::Codec);
 
@@ -413,7 +415,10 @@ sub read
 
    for ( @$content) {
       $line++;
-      m/^{(\d+)}{(\d*)}(.*)$/ or die "Invalid input at line $line\n";
+      unless ( m/^{(\d+)}{(\d*)}(.*)$/) {
+         warn "Invalid input at line $line\n";
+	 next;
+      }
       push @$from, $1/$fps;
       push @$to,   length($2) ? ($2/$fps) : ($1+1)/$fps;
       my $t = $3;
@@ -601,7 +606,6 @@ sub read
 
    my $read_header = 1;
    my $read_footer = 0;
-   my $fps = $sub->{rate} ? $sub->{rate} : 25;
 
    my $body = '';
 
@@ -635,15 +639,15 @@ sub read
 	       unless defined $sub->{smi}->{s1gap};
             if ( @$from == @$to) {
                goto ERROR if @$from != @$text;
-               push @$from, $1/$fps;
+               push @$from, $1/1000;
             } elsif ( @$from == @$to + 1) {
                if ( @$from == @$text) {
                   if ( $$text[-1] eq '') {
                      pop @$from;
                      pop @$text;
                   } else {
-                     push @$to, $1/$fps;
-                     push @$from, $1/$fps;
+                     push @$to, $1/1000;
+                     push @$from, $1/1000;
                   }
                } else {
                   goto ERROR;
@@ -700,7 +704,6 @@ sub write
    my $from = $sub->{from};
    my $to   = $sub->{to};
    my $text = $sub->{text};
-   my $fps = $sub->{rate} ? $sub->{rate} : 25;
 
    my $smi_class = defined ($sub->{smi}->{class}) ? $sub->{smi}->{class} : 'SUBTTL';
    if ( $sub->{smi}->{header}) {
@@ -732,8 +735,8 @@ HEADER
    my $s1 = ' ' x ( $sub->{smi}->{s1gap} || 0);
    my $s2 = ' ' x ( $sub->{smi}->{s2gap} || 0);
    for ( $i = 0; $i < $n; $i++) {
-      my $f = int($$from[$i] * $fps + .5);
-      my $t = int($$to[$i] * $fps + .5);
+      my $f = int($$from[$i] * 1000 + .5);
+      my $t = int($$to[$i] * 1000 + .5);
       my $x = $$text[$i];
       $x =~ s/\n/<br>/g;
       push @ret, 
@@ -742,7 +745,7 @@ HEADER
       push @ret,
          "$s1<SYNC Start=$t>",
          "$s2<P Class=$smi_class>&nbsp;"
-	 if $i == $n - 1 || int($$from[$i+1] * $fps + .5) != $t;
+	 if $i == $n - 1 || int($$from[$i+1] * 1000 + .5) != $t;
       ;
    }
    if ( $sub->{smi}->{footer}) {
