@@ -1,4 +1,4 @@
-# $Id: Subtitles.pm,v 1.4 2004/07/02 18:55:55 dk Exp $
+# $Id: Subtitles.pm,v 1.10 2004/12/14 15:45:06 dk Exp $
 package Subtitles;
 use strict;
 require Exporter;
@@ -6,10 +6,10 @@ use vars qw(@ISA @EXPORT @EXPORT_OK @codecs $VERSION);
 @ISA = qw(Exporter);
 @EXPORT = qw(codecs time2str);
 @EXPORT_OK = qw(codecs time2hms time2shms hms2time time2str);
-$VERSION = '0.05';
+$VERSION = '0.07';
 
 
-push @codecs, map { "Subtitles::Codec::$_" } qw( srt mdvd sub2 smi);
+push @codecs, map { "Subtitles::Codec::$_" } qw( srt mdvd sub2 smi idx);
 
 #
 # package-oriented API
@@ -182,16 +182,19 @@ sub scale { $_[0]-> transform( $_[1], 0) }
 
 sub lines { scalar @{$_[0]->{text}} }
 
-# applies linear (y = ax+b) transformation
+# applies linear (y = ax+b) transformation within a scope
 sub transform
 {
-   my ( $self, $a, $b) = @_;
+   my ( $self, $a, $b, $qfrom, $qto) = @_;
    return if $a == 1 && $b == 0;
+   $qfrom = 0 unless defined $qfrom;
+   $qto   = $self->{to}->[-1] unless defined $qto;
    my $i;
    my $n = $self-> lines;
    my $from = $self->{from};
    my $to   = $self->{to};
    for ( $i = 0; $i < $n; $i++) {
+      next if $$from[$i] > $qto || $$to[$i] < $qfrom;
       $$from[$i] = $a * $$from[$i] + $b;
       $$to[$i]   = $a * $$to[$i] + $b;
    }
@@ -408,7 +411,7 @@ sub read
    my $line = 0;
 # {3724}{3774}Text
 
-   my $fps = $sub->{rate} ? $sub->{rate} : 25;
+   my $fps = $sub->{rate} ? $sub->{rate} : 23.976;
    my $from = $sub->{from};
    my $to   = $sub->{to};
    my $text = $sub->{text};
@@ -432,7 +435,7 @@ sub write
 {
    my ( $self, $sub) = @_;
    
-   my $fps = $sub->{rate} ? $sub->{rate} : 25;
+   my $fps = $sub->{rate} ? $sub->{rate} : 23.976;
 
    my $n = @{$sub->{text}};
    my $i;
@@ -551,8 +554,8 @@ HEADER
    for ( $i = 0; $i < $n; $i++) {
       my ($fh,$fm,$fs,$fms) = Subtitles::time2hms($from->[$i]);
       my ($th,$tm,$ts,$tms) = Subtitles::time2hms($to->[$i]);
-      $fms = int ( $fms / 10 + .5);
-      $tms = int ( $tms / 10 + .5);
+      $fms = int ( $fms / 10);
+      $tms = int ( $tms / 10);
       my $t = $text->[$i];
       $t =~ s/\n/[br]/g;
       push @ret, 
@@ -767,6 +770,138 @@ sub downgrade
    }
 }
 
+package Subtitles::Codec::idx;
+use vars qw(@ISA);
+@ISA=qw(Subtitles::Codec);
+
+sub match
+{
+   $_[1] =~ m/^\s*\#\s*VobSub index file/
+}
+
+sub read
+{
+   my ( $self, $sub, $content) = @_;
+
+   my $line = 0;
+# # VobSub index file, v7 (do not modify this line!)
+# # 
+# # To repair desyncronization, you can insert gaps this way:
+# # (it usually happens after vob id changes)
+# # 
+# #	 delay: [sign]hh:mm:ss:ms
+# # 
+# # Where:
+# #	 [sign]: +, - (optional)
+# #	 hh: hours (0 <= hh)
+# #	 mm/ss: minutes/seconds (0 <= mm/ss <= 59)
+# #	 ms: milliseconds (0 <= ms <= 999)
+# # 
+# #	 Note: You can't position a sub before the previous with a negative value.
+# # 
+# # You can also modify timestamps or delete a few subs you don't like.
+# # Just make sure they stay in increasing order.
+# 
+# 
+# # Settings
+# 
+# # Original frame size
+# size: 720x576
+# 
+# # Origin, relative to the upper-left corner, can be overloaded by aligment
+# org: 0, 0
+# 
+# # Image scaling (hor,ver), origin is at the upper-left corner or at the alignment coord (x, y)
+# scale: 100%, 100%
+# 
+# # Alpha blending
+# alpha: 100%
+# 
+# # Smoothing for very blocky images (use OLD for no filtering)
+# smooth: OFF
+# 
+# # In millisecs
+# fadein/out: 50, 50
+# 
+# # Force subtitle placement relative to (org.x, org.y)
+# align: OFF at LEFT TOP
+# 
+# # For correcting non-progressive desync. (in millisecs or hh:mm:ss:ms)
+# # Note: Not effective in DirectVobSub, use "delay: ... " instead.
+# time offset: 0
+# 
+# # ON: displays only forced subtitles, OFF: shows everything
+# forced subs: OFF
+# 
+# # The original palette of the DVD
+# palette: 0000e1, e83f07, 000000, fdfdfd, 033a03, ea12eb, faff1a, 095d76, 7c7c7c, e0e0e0, 701f03, 077307, 00006c, cc0ae9, d2ab0f, 730972
+# 
+# # Custom colors (transp idxs and the four colors)
+# custom colors: OFF, tridx: 1000, colors: fdfdfd, 000000, e0e0e0, faff1a
+# 
+# # Language index in use
+# langidx: 0
+# 
+# # Dansk
+# id: da, index: 0
+# # Decomment next line to activate alternative name in DirectVobSub / Windows Media Player 6.x
+# # alt: Dansk
+# # Vob/Cell ID: 3, 1 (PTS: 0)
+# timestamp: 00:00:44:280, filepos: 000000000
+# timestamp: 00:00:50:520, filepos: 000003000
+
+   my $from = $sub->{from};
+   my $to   = $sub->{to};
+   my $text = $sub->{text};
+   my @header;
+
+   my $read_header = 1;
+   my $state = 0;
+
+   my @comments;
+
+   for ( @$content) {
+      if ( m/^\s*timestamp\:\s*(\d\d)\:(\d\d)\:(\d\d)\:(\d+).*?filepos\:\s*(.*)$/) {
+         push @$from, Subtitles::hms2time( $1, $2, $3, $4);
+         push @$text, $5;
+      } else {
+         push @comments, [ scalar @$from, $_ ];
+      }
+      $line++;
+   }
+
+   for ( $line = 0; $line < @$from - 1; $line++) {
+   	$$to[$line] = $$from[$line + 1] - 0.002;
+   }
+   push @$to, $$from[-1] + 2.0 if @$from;
+
+   $sub->{idx}->{comments} = \@comments;
+
+   1;
+}
+
+sub write
+{
+   my ( $self, $sub) = @_;
+
+   die "The idx format subtitles cannot be created from the other formats\n"
+   	unless $sub->{idx}->{comments};
+
+   my $from = $sub->{from};
+   my $to   = $sub->{to};
+   my $text = $sub->{text};
+   my $c    = $sub->{idx}->{comments};
+   my ( $i, $j);
+   my $n = @$text;
+   my @ret;
+   for ( $i = $j = 0; $i < $n; $i++) {
+      push @ret, $$c[$j++][1] while $j < @$c and $$c[$j][0] <= $i;
+      push @ret, sprintf( "timestamp: %02d:%02d:%02d:%03d, filepos: %s",
+         Subtitles::time2hms($from->[$i]), $text->[$i]);
+   }
+   \@ret;
+}
+
 1;
 
 =pod
@@ -805,6 +940,7 @@ Time values are floats, in seconds with millisecond precision.
 
    # or both
    $sub-> transform( -120, 0.96);
+   $sub-> transform( -120, 0.96, 0, $sub-> length - 60);
 
    # split for 2 parts
    my ( $part1, $part2) = $sub-> split( $self-> length / 2);
@@ -925,11 +1061,13 @@ two newly created instances of the same class,
 by TIME, and returns these. The both resulting 
 subtitles begin at time 0.
 
-=item transform A, B
+=item transform A, B [FROM, TO]
 
 Applies linear transformation to the time-scale,
 such as C<u = At + B> where C<t> is the original 
-time and C<u> is the result.
+time and C<u> is the result. If FROM and TO 
+brackets are set, the changes are applied only
+to the lines in the timeframe between these.
 
 =back
 

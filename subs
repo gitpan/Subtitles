@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# $Id: subs,v 1.4 2004/07/02 18:58:34 dk Exp $
+# $Id: subs,v 1.8 2004/11/15 20:13:11 dk Exp $
 use strict;
 use Subtitles;
 
@@ -9,11 +9,14 @@ my $jtime = 2;
 my $a;
 my $b;
 my $d;
+my @eval;
 my $split;
 my $verbose;
 my $codec;
 my $rate;
 my @points;
+my @q = (0, 'end');
+my $do_q;
 my $inplace;
 
 sub usage
@@ -32,6 +35,17 @@ options:
 	       -a can be set as ratio, f.ex. 23.9/25 
    -c codec  - use codec to write file ( one of: '@codecs' )
    -d        - try to prolong duration of quickly disappearing text
+   -e code   - run perl code for each line of text in file. On each
+               run, the text and time variables are initialized, and 
+	       new values, if any, written to the file. The variables
+	       are used for:
+	       \$_ - subtitle text line
+	       \$b - cue beginning
+	       \$e - cue end
+	       \$i - line number
+	       \$n - number of lines
+	       \%p - persistent data between runs
+	       The -e option can be specified several times
    -h        - display this text
    -i        - edit files in place ( makes backup in .bak files )
    -j sec    - time interval between joins, seconds (default 2)
@@ -43,8 +57,12 @@ options:
 	       only one point is specified, it is assumed that
 	       the other one is [0,0]. Times can be relative, f.ex. 
 	       -p 01:00 +3.5 -p -20 1:00:00 
-   -r rate   - force frame-per-second rate for frame-based subs
+   -r rate   - force frame-per-second rate for frame-based subs.
+               Useful numbers are 23.976, 24, 25.
    -s time   - split in two parts by time
+   -q t1 t2  - restrict changes, if any, in time span t1-t2. Word
+               'end' can be used as an alias to the end of the 
+	       file. Default values are '0' and 'end'.
    -v        - be verbose
 
 time format is either [[HH:]MM:]SS[.MSEC] or subtitle format-specific
@@ -84,6 +102,9 @@ USAGE
 	 } elsif ( $1 eq 'd') {
 	    $d = 1;
 	    $do = 1;
+	 } elsif ( $1 eq 'e') {
+	    push @eval, nextarg;
+	    $do = 1;
 	 } elsif ( $1 eq 'a') {
 	    $a = nextarg;
 	    $do = 1;
@@ -97,6 +118,7 @@ USAGE
 	    my @c = map { s/Subtitles::Codec:://; $_ } codecs;
             my %c = map { $_ => 1 } @c;
             die "Invalid codec name `$codec'; valid are: @c\n" unless exists $c{$codec};
+	    $do = 1;
 	 } elsif ( $1 eq 'b') {
 	    $b = nextarg;
 	    $do = 1;
@@ -104,6 +126,10 @@ USAGE
 	    die "Too many control points\n" if 2 == @points;
 	    push @points, [ nextarg, nextarg ];
 	    $do = 1;
+	 } elsif ( $1 eq 'q') {
+	    die "Too many brackets\n" if $do_q;
+	    @q = (nextarg, nextarg);
+	    $do_q = 1;
 	 } elsif ( $1 eq 'r') {
 	    $rate = nextarg;
 	    die "Invalid rate `$rate'\n" unless $rate =~ /^\d+(\.\d+)?$/;
@@ -122,8 +148,8 @@ USAGE
    die "Nothing to do!\n" unless $do;
    if ( $inplace) {
       die "-i and -o options are mutually exclusive\n" if $set_o;
-      die "Cannot do edit in place for more than one input files\n" if 1 < @in;
-      die "Cannot do edit in place for stdin input\n" if $in[0] eq '-';
+      die "Cannot edit in place for more than one input file\n" if 1 < @in;
+      die "Cannot edit in place for stdin input\n" if $in[0] eq '-';
       $out = $in[0];
    }
 }
@@ -163,6 +189,7 @@ if ( defined $split) {
    $split = $s;
    warn "split by ". time2str($s) . "\n" if $verbose;
 }
+
 
 # points
 for (@points) {
@@ -227,7 +254,23 @@ if ( defined $b) {
 
 # process
 $dest-> join( $_, $jtime) for @entries; # join
-$dest-> transform( $a, $b);
+
+# brackets and transform
+my $vv_q = "brackets [ ";
+for ( @q) {
+   if ( $_ eq 'end') {
+      $_ = $dest-> length;
+   } else {
+      my $q = $dest-> parse_time( $_);
+      die "Cannot parse time `$_'\n" unless defined $q;
+      $_ = $q;
+   }
+   $vv_q .= time2str($_) . ' ';
+}
+warn "$vv_q ]\n" if $verbose;
+$dest-> transform( $a, $b, @q);
+
+# prolong timing
 if ( $d) {
    my $i = 0;
    my $from = $dest->{from};
@@ -235,10 +278,14 @@ if ( $d) {
    my $text = $dest->{text};
    my $n = @$from;
    my $c = 0;
+   my ($qfrom, $qto) = @q;
+   $qfrom = 0 unless defined $qfrom;
+   $qto   = $$to[-1] unless defined $qto;
    for ( $i = 0; $i < $n; $i++) {
       my @clob = split("\n", $$text[$i]);
       my $min = 0.8 * @clob;
       next if $$to[$i] - $$from[$i] > $min;
+      next if $$from[$i] > $qto || $$to[$i] < $qfrom;
       if ( $i < $n - 1 && $$to[$i] + $min > $$from[$i+1]) {
          $$to[$i] = $$from[$i+1] - 0.01;
       } else {
@@ -248,6 +295,34 @@ if ( $d) {
    }
    warn "$c lines prolonged\n";
 }
+
+# -e
+if ( @eval) {
+   my $i = 0;
+   my $from = $dest->{from};
+   my $to   = $dest->{to};
+   my $text = $dest->{text};
+   my $n = @$from;
+   my ($qfrom, $qto) = @q;
+   $qfrom = 0 unless defined $qfrom;
+   $qto   = $$to[-1] unless defined $qto;
+   my %p;
+   
+   for my $eval ( @eval) {
+      for ( $i = 0; $i < $n; $i++) {
+         local $_ = $$text[$i];
+	 my $b = $$from[$i];
+	 my $e = $$to[$i];
+         next if $b > $qto || $e < $qfrom;
+	 eval $eval;
+	 die "error in '$eval': $@" if $@;
+	 $$text[$i] = $_;
+	 $$from[$i] = $b;
+	 $$to[$i] = $e;
+      }
+   }
+}
+
 $dest-> codec( "Subtitles::Codec::$codec") if defined $codec;
 my @write;
 
@@ -286,6 +361,7 @@ if ( defined $split) {
 # done
 exit(0);
 
+
 __DATA__
 
 =pod
@@ -317,6 +393,42 @@ Use codec to write file. Run 'subs -h' for list of installed codecs.
 Try to prolong duration of quickly disappearing text.
 'Quickly' is less than 0.8 second per line of text.
 
+=item -e command
+
+Run perl code for each line of text in file. On each run, the text and time
+variables are initialized, and new values, if any, written to the file. The
+variables are used for:
+
+=over
+
+=item $_
+
+subtitle text line
+
+=item $b
+
+cue beginning
+
+=item $e
+
+cue end
+
+=item $i
+
+line number
+
+=item $n
+
+number of lines
+
+=item %p
+
+persistent data between runs
+
+=back
+
+The -e option can be specified several times
+
 =item -h
 
 Display help
@@ -341,6 +453,11 @@ for deducing -a and -b coefficients; if only one point is specified, it is
 assumed that the other one is [0,0].
 
 Times can be relative, f.ex. -p 01:00 +3.5 -p -20 1:00:00
+
+=item -q t1 t2
+
+Restrict changes, if any, in time span t1-t2. Word 'end' can be used as an
+alias to the end of the file. Default values are '0' and 'end'.
 
 =item -r rate
 
@@ -385,6 +502,10 @@ Split in two after 50 minutes and half a second ( makes basename.1.sub
 and basename.2.sub ).
 
     subs -o basename.sub -s 50:00.5 toobig.sub
+
+Remove closed caption-specific comments such as '[Sneezing]' or '[Music playing]'
+
+    subs -e 's/[\s-]*\[.*\]\s*\n*//gs' sub.sub
 
 =head1 BUGS
 
