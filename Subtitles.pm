@@ -1,4 +1,4 @@
-# $Id: Subtitles.pm,v 1.12 2005/10/15 15:56:53 dk Exp $
+# $Id: Subtitles.pm,v 1.14 2007/03/09 10:09:50 dk Exp $
 package Subtitles;
 use strict;
 require Exporter;
@@ -6,7 +6,7 @@ use vars qw(@ISA @EXPORT @EXPORT_OK @codecs $VERSION);
 @ISA = qw(Exporter);
 @EXPORT = qw(codecs time2str);
 @EXPORT_OK = qw(codecs time2hms time2shms hms2time time2str);
-$VERSION = '0.08';
+$VERSION = '0.09';
 
 
 push @codecs, map { "Subtitles::Codec::$_" } qw( srt mdvd sub2 smi idx);
@@ -887,11 +887,11 @@ Subtitles - fix timing for subtitles in various text formats
 
 =head1 DESCRIPTION
 
-Movie files can be viewed with subtitles, which are currently
-very popular as text files. C<Subtitles> provides means for
-simple loading, re-timing, and storing these subtitle files.
-A command-line tool F<subs> for the same purpose and using
-C<Subtitles> interface is included in the distribution.
+Video files (avi mpeg etc) are sometimes accompanied with subtitles, which are
+currently very popular as text files. C<Subtitles> provides means for simple
+loading, re-timing, and storing these subtitle files.  A command-line tool
+F<subs> for the same purpose and using C<Subtitles> interface is included in
+the distribution.
 
 The module supports C<srt>, C<sub>, C<smi> subtitle formats.
 
