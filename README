@@ -38,6 +38,13 @@ Remove closed caption-specific comments such as '[Sneezing]' or '[Music playing]
 
     subs -e 's/[\s-]*\[.*\]\s*\n*//gs' sub.sub
 
+Separate overlapped lines
+
+    subs -O subs.sub
+
+Zap two subtitles together -- read time information from one, text from another
+
+    subs -z time.sub text.sub
 
 INSTALLATION
 ============
