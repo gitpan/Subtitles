@@ -1,7 +1,7 @@
 --- #YAML:1.0
 name:                Subtitles
-version:             1.01
-abstract:            fix timing for subtitles in various text formats
+version:             1.02
+abstract:            handle video subtitles in various text formats
 license:             ~
 author:              
     - Dmitry Karasik <dmitry@karasik.eu.org>
